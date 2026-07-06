@@ -1,66 +1,55 @@
-# 📱 Android Pydantic Core
+# Android Pydantic-Core
 
-[![Build & Release](https://img.shields.io/github/actions/workflow/status/Eutalix/android-pydantic-core/build_wheels.yml?label=Build)](https://github.com/Eutalix/android-pydantic-core/actions/build_wheels.yml)
-[![Python Versions](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/Eutalix/android-pydantic-core/releases)
-[![Architectures](https://img.shields.io/badge/arch-arm64%20%7C%20armv7%20%7C%20x86%20%7C%20x86__64-orange)](https://github.com/Eutalix/android-pydantic-core/releases)
+Pre-compiled [pydantic-core](https://pypi.org/project/pydantic-core/) wheels for **Android (Termux)**.
 
-**Automated builds of `pydantic-core` optimized for Android (Termux).**
+This repository provides pre-built wheels that install instantly via `pip`.
 
-Compiling `pydantic-core` on Android requires a Rust toolchain and takes ~15 minutes (or fails due to memory). This repository provides pre-built wheels that install instantly via `pip`.
+## Supported Versions
 
-## 📦 Supported Targets
+| Python | Status |
+|--------|--------|
+| 3.9    | ✅     |
+| 3.10   | ✅     |
+| 3.11   | ✅     |
+| 3.12   | ✅     |
+| 3.13   | ✅     |
+| 3.14   | ✅     |
 
-| Architecture | Device Type | Status |
-|--------------|-------------|--------|
-| `aarch64` | Modern Smartphones | ✅ Supported |
-| `armv7` | Older Devices | ✅ Supported |
-| `x86_64` | Emulators / Chromebooks | ✅ Supported |
-| `x86` | Old Emulators | ✅ Supported |
+## Installation
 
-> **Python Versions:** 3.9, 3.10, 3.11, 3.12, 3.13
+### Method 1: Automated Script (Recommended)
 
----
-
-## 🚀 Installation
-
-### ⚡ Option 1: Quick Install (Script)
-Use this if you want the installer to **auto-detect** your architecture and Python version.
+Run the installer directly:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Eutalix/android-pydantic-core/main/install_pydantic_core.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/S0methingSomething/android-pydantic-core/main/install_pydantic_core.sh)
 ```
 
-### 🐍 Option 2: Pip (Standard)
-Best for requirements files or CI/CD.
+### Method 2: Manual Install
+
+1. Go to the [latest release](https://github.com/S0methingSomething/android-pydantic-core/releases/latest)
+2. Download the wheel matching your Python version and architecture 
+3. Install with pip:
 
 ```bash
-pip install pydantic-core --extra-index-url https://eutalix.github.io/android-pydantic-core/
+pip install pydantic_core-*.whl
 ```
 
-### 📦 Option 3: Manual Download
-You can manually download the `.whl` files from the [Releases Page](https://github.com/Eutalix/android-pydantic-core/releases).
+## How It Works
 
-1. Download the file matching your Python version (`cp312`) and Architecture (`aarch64`).
-2. Install it:
-   ```bash
-   pip install pydantic_core-*.whl
-   ```
+This GitHub Action:
+1. Checks for new pydantic-core releases on PyPI monthly
+2. Cross-compiles wheels for Android using the Android NDK
+3. Uses a custom sysconfig mock to trick maturin into building for Termux
+4. Applies RPATH fix for Termux library locations
+5. Publishes wheels as GitHub Releases
 
----
+## Technical Details
 
-## 🛠️ How it works
+- Built with **NDK r25b** (API 24)
+- Includes **RPATH** fix for Termux library location
+- Linked with **`--no-as-needed`** to ensure `libpython` loading
 
-This repository uses **GitHub Actions** to cross-compile wheels using the Android NDK r25b.
+## Credits
 
-1.  **Checks PyPI** for new versions daily.
-2.  **Cross-compiles** using `maturin` and patched linker flags:
-    *   **RPATH Fix:** Hardcodes Termux library paths (`/data/data/com.termux/files/usr/lib`) so the linker finds `libpython`.
-    *   **Force Needed:** Uses `--no-as-needed` to ensure `libpython` dependencies are correctly recorded.
-3.  **Renames** artifacts to `linux_{arch}` for Termux compatibility.
-4.  **Publishes** wheels to GitHub Releases and updates the PEP 503 Index.
-
-## 🤝 Credits
-
-- [pydantic](https://github.com/pydantic/pydantic-core)
-
-License: MIT
+Forked from [Eutalix/android-pydantic-core](https://github.com/Eutalix/android-pydantic-core).

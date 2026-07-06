@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # install_pydantic_core.sh
 # Automated installer for pydantic-core on Android/Termux via GitHub Releases.
-# Repo: https://github.com/Eutalix/android-pydantic-core
+# Repo: https://github.com/S0methingSomething/android-pydantic-core
 
 set -e
 
 # --- CONFIGURATION ---
-REPO_USER="Eutalix"
+REPO_USER="S0methingSomething"
 REPO_NAME="android-pydantic-core"
 
 # --- COLORS ---
