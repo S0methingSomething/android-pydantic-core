@@ -44,8 +44,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-        arch: ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+        python-version: ['3.14']
+        arch: ['arm64-v8a']
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust & Targets
@@ -53,7 +53,7 @@ jobs:
           pip install maturin
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source "$HOME/.cargo/env"
-          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          rustup target add aarch64-linux-android
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -72,13 +72,9 @@ jobs:
           ARCH="${{ matrix.arch }}"; API="${{ env.ANDROID_API }}"
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"; export PATH="$NDK_BIN:$PATH"
-          if [ "$ARCH" == "arm64-v8a" ]; then RUST_TARGET="aarch64-linux-android"; CT="aarch64-linux-android${API}"; PT="linux_aarch64"
-          elif [ "$ARCH" == "armeabi-v7a" ]; then RUST_TARGET="armv7-linux-androideabi"; CT="armv7a-linux-androideabi${API}"; PT="linux_armv7l"
-          elif [ "$ARCH" == "x86" ]; then RUST_TARGET="i686-linux-android"; CT="i686-linux-android${API}"; PT="linux_i686"
-          elif [ "$ARCH" == "x86_64" ]; then RUST_TARGET="x86_64-linux-android"; CT="x86_64-linux-android${API}"; PT="linux_x86_64"; fi
-          CLANG_WRAPPER="${CT}-clang"
+          RUST_TARGET="aarch64-linux-android"; CT="aarch64-linux-android${API}"; PT="linux_aarch64"
           LINKER_VAR="CARGO_TARGET_$(echo $RUST_TARGET | tr '[:lower:]-' '[:upper:]_')_LINKER"
-          [ -f "$NDK_BIN/$CLANG_WRAPPER" ] && export $LINKER_VAR="$NDK_BIN/$CLANG_WRAPPER" || export $LINKER_VAR="$NDK_BIN/clang"
+          [ -f "$NDK_BIN/${CT}-clang" ] && export $LINKER_VAR="$NDK_BIN/${CT}-clang" || export $LINKER_VAR="$NDK_BIN/clang"
           MOCK_DIR="$(pwd)/mock_libs"; mkdir -p "$MOCK_DIR"
           "$NDK_BIN/clang" --target=$CT -shared -Wl,-soname,libpython$PY_VER.so -o "$MOCK_DIR/libpython$PY_VER.so" -xc /dev/null
           SYSCONFIG_NAME="_sysconfigdata__linux_${RUST_TARGET}"
@@ -96,7 +92,8 @@ jobs:
           export $RUSTFLAGS_VAR="-L native=$MOCK_DIR -C link-arg=--target=$CT -C link-arg=-Wl,--no-as-needed -C link-arg=-lpython$PY_VER -C link-arg=-Wl,--as-needed -C link-arg=-Wl,--unresolved-symbols=ignore-all -C link-arg=-Wl,-rpath=/data/data/com.termux/files/usr/lib"
           mkdir -p build_src && cd build_src
           pip download "${{ env.PACKAGE_NAME }}==$PKG_VER" --no-binary :all: --no-deps
-          tar -xzf jiter-*.tar.gz && cd jiter-*
+          tar -xzf jiter-*.tar.gz && rm jiter-*.tar.gz
+          cd jiter-*
           export PYO3_CROSS_LIB_DIR="$MOCK_DIR"; export PYTHONPATH="$MOCK_DIR:$PYTHONPATH"
           export PYO3_CROSS_PYTHON_VERSION="$PY_VER"; export _PYTHON_SYSCONFIGDATA_NAME="$SYSCONFIG_NAME"
           maturin build --release --strip --target "$RUST_TARGET" --interpreter python$PY_VER --skip-auditwheel
@@ -118,7 +115,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: wheels; merge-multiple: true
+          path: wheels
+          merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.PACKAGE_NAME }}-${{ needs.check-version.outputs.version }}
@@ -127,6 +125,7 @@ jobs:
             ### Automated Android Build
             **Package:** `${{ env.PACKAGE_NAME }}`
             - **OS:** Android (Termux)
-            - **Archs:** aarch64, armv7, x86, x86_64
-            - **Python:** 3.9 - 3.14
-          files: wheels/*.whl; make_latest: false
+            - **Arch:** aarch64
+            - **Python:** 3.14
+          files: wheels/*.whl
+          make_latest: false

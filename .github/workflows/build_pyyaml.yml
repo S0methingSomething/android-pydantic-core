@@ -44,8 +44,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-        arch: ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+        python-version: ['3.14']
+        arch: ['arm64-v8a']
     steps:
       - uses: actions/checkout@v4
       - name: Setup Python ${{ matrix.python-version }}
@@ -64,27 +64,15 @@ jobs:
         id: build_step
         run: |
           set -e
-          PY_VER="${{ matrix.python-version }}"
-          PKG_VER="${{ needs.check-version.outputs.version }}"
+          PY_VER="${{ matrix.python-version }}"; PKG_VER="${{ needs.check-version.outputs.version }}"
           ARCH="${{ matrix.arch }}"; API="${{ env.ANDROID_API }}"
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          export PATH="$NDK_BIN:$PATH"
-          if [ "$ARCH" == "arm64-v8a" ]; then
-            HOST="aarch64-linux-android"; CT="aarch64-linux-android${API}"; PT="linux_aarch64"; HP="linux-aarch64"
-          elif [ "$ARCH" == "armeabi-v7a" ]; then
-            HOST="armv7a-linux-androideabi"; CT="armv7a-linux-androideabi${API}"; PT="linux_armv7l"; HP="linux-armv7l"
-          elif [ "$ARCH" == "x86" ]; then
-            HOST="i686-linux-android"; CT="i686-linux-android${API}"; PT="linux_i686"; HP="linux-i686"
-          elif [ "$ARCH" == "x86_64" ]; then
-            HOST="x86_64-linux-android"; CT="x86_64-linux-android${API}"; PT="linux_x86_64"; HP="linux-x86_64"
-          fi
-          export CC="$NDK_BIN/${CT}-clang"
-          export CXX="$NDK_BIN/${CT}-clang++"
+          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"; export PATH="$NDK_BIN:$PATH"
+          HOST="aarch64-linux-android"; CT="aarch64-linux-android${API}"; PT="linux_aarch64"; HP="linux-aarch64"
+          export CC="$NDK_BIN/${CT}-clang"; export CXX="$NDK_BIN/${CT}-clang++"
           export CFLAGS="--target=$CT --sysroot=$NDK_SYSROOT -O2 -fPIC"
           export LDFLAGS="--target=$CT --sysroot=$NDK_SYSROOT"
           export _PYTHON_HOST_PLATFORM="$HP"
-
           # Cross-compile libyaml
           echo "Building libyaml for $HOST..."
           git clone --depth=1 https://github.com/yaml/libyaml.git
@@ -94,29 +82,24 @@ jobs:
           make -j$(nproc) install
           LYB_DIR="$(pwd)/install"
           cd ..
-
           # Mock libpython
           MOCK_DIR="$(pwd)/mock_libs"; mkdir -p "$MOCK_DIR"
           "$NDK_BIN/clang" --target=$CT -shared -Wl,-soname,libpython$PY_VER.so -o "$MOCK_DIR/libpython$PY_VER.so" -xc /dev/null
-
           # Download & build pyyaml
-          pip download "PyYAML==$PKG_VER" --no-binary :all: --no-deps
-          tar -xzf PyYAML-*.tar.gz; cd PyYAML-*
-
+          pip download "PyYAML==$PKG_VER" --no-binary :all: --no-deps --no-build-isolation
+          tar -xzf pyyaml-*.tar.gz && rm pyyaml-*.tar.gz
+          cd pyyaml-*
           export CFLAGS="$CFLAGS -I$LYB_DIR/include"
           export LDFLAGS="$LDFLAGS -L$LYB_DIR/lib -L$MOCK_DIR -Wl,-rpath=/data/data/com.termux/files/usr/lib"
-
           python setup.py bdist_wheel --plat-name $PT
           cd dist; WHEEL_FILE=$(ls *.whl | head -1)
           echo "WHEEL_PATH=$(pwd)/$WHEEL_FILE" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.python-version }}-${{ matrix.arch }}
           path: ${{ steps.build_step.outputs.WHEEL_PATH }}
           retention-days: 1
-
   release:
     needs: [check-version, build]
     if: needs.check-version.outputs.should_build == 'true'
@@ -136,7 +119,7 @@ jobs:
             ### Automated Android Build
             **Package:** `${{ env.PACKAGE_NAME }}`
             - **OS:** Android (Termux)
-            - **Archs:** `aarch64`, `armv7`, `x86`, `x86_64`
-            - **Python:** 3.9 - 3.14
+            - **Arch:** aarch64
+            - **Python:** 3.14
           files: wheels/*.whl
           make_latest: false
