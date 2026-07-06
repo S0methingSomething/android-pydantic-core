@@ -24,83 +24,86 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PKG_NAME: "pydantic-core"
         run: |
           mkdir -p site
-          
-          cat <<EOF > generate_index.py
+
+          cat <<'EOF' > generate_index.py
           import os
           import json
           import subprocess
           import sys
+          import re
 
           repo = os.environ['REPO']
-          pkg_name = os.environ['PKG_NAME']
-          normalized_name = pkg_name.replace('_', '-').lower()
 
           print(f"🔍 Fetching releases from API for {repo}...")
-          
-          # [FIX] Use 'gh api' instead of 'gh release list'
-          # This ensures we get the full JSON with 'assets' and 'browser_download_url'
           cmd = ["gh", "api", f"repos/{repo}/releases", "--paginate"]
-          
           result = subprocess.run(cmd, capture_output=True, text=True)
-          
           if result.returncode != 0:
               print(f"❌ API Error: {result.stderr}")
               sys.exit(1)
-
           try:
               releases = json.loads(result.stdout)
           except json.JSONDecodeError:
               print("❌ Error decoding JSON response")
               sys.exit(1)
-          
-          target_dir = f"site/{normalized_name}"
-          os.makedirs(target_dir, exist_ok=True)
-          
-          wheel_count = 0
-          html_links = []
+
+          def normalize(name):
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+          by_pkg = {}  # normalized_pkg -> list of (name, download_url)
 
           for release in releases:
-              # Skip drafts if necessary, though 'gh api' returns them by default
               if release.get('draft'):
                   continue
-                  
               for asset in release.get('assets', []):
                   name = asset['name']
-                  download_url = asset.get('browser_download_url')
-                  
-                  if name.endswith('.whl') and download_url:
-                      html_links.append(f'<a href="{download_url}">{name}</a>')
-                      wheel_count += 1
+                  url = asset.get('browser_download_url')
+                  if not name.endswith('.whl') or not url:
+                      continue
+                  # Format: <pkg>-<ver>-<py>-<abi>-<plat>.whl
+                  pkg = name.split('-', 1)[0]
+                  if pkg == 'pydantic':
+                      # pydantic_core-2.47.0-... or pydantic_core-...
+                      pkg = name.split('-', 3)[0]
+                      if pkg == 'pydantic':
+                          pkg = 'pydantic_core'
+                  norm = normalize(pkg)
+                  by_pkg.setdefault(norm, []).append((name, url))
 
-          # Generate Index HTML
-          html_content = f"""<!DOCTYPE html>
+          site_dir = "site"
+          total = 0
+          for pkg, links in sorted(by_pkg.items()):
+              target_dir = f"{site_dir}/{pkg}"
+              os.makedirs(target_dir, exist_ok=True)
+              html_links = [f'<a href="{url}">{name}</a>' for (name, url) in links]
+              html = f"""<!DOCTYPE html>
           <html>
           <body>
-              <h1>Links for {normalized_name}</h1>
+              <h1>Links for {pkg}</h1>
               {'<br>'.join(html_links)}
           </body>
           </html>"""
-          
-          with open(f"{target_dir}/index.html", "w") as f:
-              f.write(html_content)
-              
-          # Root Redirect
-          root_content = f"""<!DOCTYPE html>
+              with open(f"{target_dir}/index.html", "w") as f:
+                  f.write(html)
+              total += len(links)
+              print(f"✅ {pkg}: {len(links)} wheels")
+
+          root_html = """<!DOCTYPE html>
           <html>
-          <head><meta http-equiv="refresh" content="0; url={normalized_name}/" /></head>
-          <body><a href="{normalized_name}/">Go to {normalized_name}</a></body>
-          </html>"""
+          <body>
+          """
+          for pkg in sorted(by_pkg.keys()):
+              root_html += f'<a href="{pkg}/">{pkg}</a><br>'
+          root_html += "</body></html>"
+          with open(f"{site_dir}/index.html", "w") as f:
+              f.write(root_html)
 
-          with open("site/index.html", "w") as f:
-              f.write(root_content)
-
-          print(f"✅ Generated index for {normalized_name} with {wheel_count} wheels.")
+          print(f"✅ Total: {total} wheels across {len(by_pkg)} packages")
           EOF
-          
+
           python3 generate_index.py
+
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3

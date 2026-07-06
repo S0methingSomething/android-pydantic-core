@@ -67,8 +67,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-        arch: ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+        python-version: ['3.14']
+        arch: ['arm64-v8a']
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -78,7 +78,7 @@ jobs:
           pip install maturin
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source "$HOME/.cargo/env"
-          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          rustup target add aarch64-linux-android
 
       - name: Cache Cargo Registry
         uses: actions/cache@v4
@@ -118,27 +118,10 @@ jobs:
           export PATH="$NDK_BIN:$PATH"
 
           # --- Architecture Config ---
-          if [ "$ARCH" == "arm64-v8a" ]; then
-             RUST_TARGET="aarch64-linux-android"
-             CC_TARGET="aarch64-linux-android${ANDROID_API}"
-             NDK_LIB_ARCH="aarch64-linux-android"
-             PLAT_TAG="linux_aarch64"
-          elif [ "$ARCH" == "armeabi-v7a" ]; then
-             RUST_TARGET="armv7-linux-androideabi"
-             CC_TARGET="armv7a-linux-androideabi${ANDROID_API}"
-             NDK_LIB_ARCH="arm-linux-androideabi"
-             PLAT_TAG="linux_armv7l"
-          elif [ "$ARCH" == "x86" ]; then
-             RUST_TARGET="i686-linux-android"
-             CC_TARGET="i686-linux-android${ANDROID_API}"
-             NDK_LIB_ARCH="i686-linux-android"
-             PLAT_TAG="linux_i686"
-          elif [ "$ARCH" == "x86_64" ]; then
-             RUST_TARGET="x86_64-linux-android"
-             CC_TARGET="x86_64-linux-android${ANDROID_API}"
-             NDK_LIB_ARCH="x86_64-linux-android"
-             PLAT_TAG="linux_x86_64"
-          fi
+          RUST_TARGET="aarch64-linux-android"
+          CC_TARGET="aarch64-linux-android${ANDROID_API}"
+          NDK_LIB_ARCH="aarch64-linux-android"
+          PLAT_TAG="android_arm64_v8a"
           
           # --- Configure Linker ---
           CLANG_WRAPPER="${CC_TARGET}-clang"
@@ -184,7 +167,7 @@ jobs:
           mkdir -p build_src && cd build_src
           echo "Downloading source for $PKG_VER..."
           pip download "${{ env.PACKAGE_NAME }}==$PKG_VER" --no-binary :all: --no-deps
-          tar -xzf pydantic?core-*.tar.gz
+          tar -xzf pydantic?core-*.tar.gz && rm pydantic?core-*.tar.gz
           cd pydantic?core-*/
 
           # --- APPLY CROSS-COMPILATION ENV VARS NOW ---
@@ -251,8 +234,8 @@ jobs:
             
             **Platform Support:**
             - **OS:** Android (Termux)
-            - **Archs:** `aarch64`, `armv7`, `x86`, `x86_64`
-            - **Python:** 3.9 - 3.14
+            - **Arch:** `aarch64`
+            - **Python:** `3.14`
             
             **Installation:**
             ```bash

@@ -32,8 +32,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE: ${{ inputs.force_build }}
         run: |
-          VER="${{ steps.pypi.outputs.version }}"
-          TAG="v${{ env.PACKAGE_NAME }}-$VER"
+          VER="${{ steps.pypi.outputs.version }}"; TAG="v${{ env.PACKAGE_NAME }}-$VER"
           if [ "$FORCE" == "true" ]; then echo "should_build=true" >> $GITHUB_OUTPUT; exit 0; fi
           if gh release view "$TAG" > /dev/null 2>&1; then echo "should_build=false" >> $GITHUB_OUTPUT
           else echo "should_build=true" >> $GITHUB_OUTPUT; fi
@@ -45,8 +44,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
-        arch: ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+        python-version: ['3.14']
+        arch: ['arm64-v8a']
     steps:
       - uses: actions/checkout@v4
       - name: Setup Python ${{ matrix.python-version }}
@@ -65,55 +64,30 @@ jobs:
         id: build_step
         run: |
           set -e
-          PY_VER="${{ matrix.python-version }}"
-          PKG_VER="${{ needs.check-version.outputs.version }}"
-          ARCH="${{ matrix.arch }}"
-          API="${{ env.ANDROID_API }}"
+          PY_VER="${{ matrix.python-version }}"; PKG_VER="${{ needs.check-version.outputs.version }}"
+          ARCH="${{ matrix.arch }}"; API="${{ env.ANDROID_API }}"
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          export PATH="$NDK_BIN:$PATH"
-
-          if [ "$ARCH" == "arm64-v8a" ]; then
-            CC_TARGET="aarch64-linux-android${API}"; PLAT_TAG="linux_aarch64"
-            HOST_PLAT="linux-aarch64"
-          elif [ "$ARCH" == "armeabi-v7a" ]; then
-            CC_TARGET="armv7a-linux-androideabi${API}"; PLAT_TAG="linux_armv7l"
-            HOST_PLAT="linux-armv7l"
-          elif [ "$ARCH" == "x86" ]; then
-            CC_TARGET="i686-linux-android${API}"; PLAT_TAG="linux_i686"
-            HOST_PLAT="linux-i686"
-          elif [ "$ARCH" == "x86_64" ]; then
-            CC_TARGET="x86_64-linux-android${API}"; PLAT_TAG="linux_x86_64"
-            HOST_PLAT="linux-x86_64"
-          fi
-
-          MOCK_DIR="$(pwd)/mock_libs"
-          mkdir -p "$MOCK_DIR"
+          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"; export PATH="$NDK_BIN:$PATH"
+          CC_TARGET="aarch64-linux-android${API}"; PLAT_TAG="android_arm64_v8a"; HOST_PLAT="android-aarch64"
+          MOCK_DIR="$(pwd)/mock_libs"; mkdir -p "$MOCK_DIR"
           "$NDK_BIN/clang" --target=$CC_TARGET -shared -Wl,-soname,libpython$PY_VER.so -o "$MOCK_DIR/libpython$PY_VER.so" -xc /dev/null
-
-          export CC="$NDK_BIN/${CC_TARGET}-clang"
-          export CXX="$NDK_BIN/${CC_TARGET}-clang++"
+          export CC="$NDK_BIN/${CC_TARGET}-clang"; export CXX="$NDK_BIN/${CC_TARGET}-clang++"
           export CFLAGS="--target=$CC_TARGET --sysroot=$NDK_SYSROOT -O2 -fPIC"
           export LDFLAGS="--target=$CC_TARGET --sysroot=$NDK_SYSROOT -L$MOCK_DIR -Wl,-rpath=/data/data/com.termux/files/usr/lib -lm"
           export _PYTHON_HOST_PLATFORM="$HOST_PLAT"
-
           mkdir -p build_src && cd build_src
           pip download "${{ env.PACKAGE_NAME }}==$PKG_VER" --no-binary :all: --no-deps
-          tar -xzf msgspec-*.tar.gz
+          tar -xzf msgspec-*.tar.gz && rm msgspec-*.tar.gz
           cd msgspec-*
-
           python setup.py bdist_wheel --plat-name $PLAT_TAG
-          cd dist
-          WHEEL_FILE=$(ls *.whl | head -1)
+          cd dist; WHEEL_FILE=$(ls *.whl | head -1)
           echo "WHEEL_PATH=$(pwd)/$WHEEL_FILE" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.python-version }}-${{ matrix.arch }}
           path: ${{ steps.build_step.outputs.WHEEL_PATH }}
           retention-days: 1
-
   release:
     needs: [check-version, build]
     if: needs.check-version.outputs.should_build == 'true'
@@ -132,9 +106,8 @@ jobs:
           body: |
             ### Automated Android Build
             **Package:** `${{ env.PACKAGE_NAME }}`
-            **Version:** `${{ needs.check-version.outputs.version }}`
             - **OS:** Android (Termux)
-            - **Archs:** `aarch64`, `armv7`, `x86`, `x86_64`
-            - **Python:** 3.10 - 3.14
+            - **Arch:** aarch64
+            - **Python:** 3.14
           files: wheels/*.whl
           make_latest: false
