@@ -6,6 +6,8 @@ on:
       force_build:
         type: boolean
         default: false
+  schedule:
+    - cron: '40 4 * * *'
 
 env:
   PACKAGE_NAME: pyproject-fmt

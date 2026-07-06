@@ -4,9 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       force_build:
-        description: 'Force build even if release exists'
-        required: false
+        type: boolean
         default: false
+  schedule:
+    - cron: '0 4 * * *'
         type: boolean
   schedule:
     - cron: '0 0 1 * *' # Run monthly on the 1st

@@ -6,6 +6,8 @@ on:
       force_build:
         type: boolean
         default: false
+  schedule:
+    - cron: '5 4 * * *'
 
 env:
   PACKAGE_NAME: selectolax
