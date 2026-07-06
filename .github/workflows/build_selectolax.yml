@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
     inputs:
       force_build:
-        description: 'Force build even if release exists'
         type: boolean
         default: false
 
@@ -19,180 +18,99 @@ permissions:
 
 jobs:
   check-version:
-    name: Check Version
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.pypi.outputs.version }}
       should_build: ${{ steps.check_release.outputs.should_build }}
     steps:
       - uses: actions/checkout@v4
-
       - id: pypi
-        name: Get Latest PyPI Version
         run: |
           VER=$(curl -s https://pypi.org/pypi/${{ env.PACKAGE_NAME }}/json | python3 -c "import sys, json; print(json.load(sys.stdin)['info']['version'])")
-          echo "Latest PyPI version: $VER"
           echo "version=$VER" >> $GITHUB_OUTPUT
-
       - id: check_release
-        name: Check if Release Exists
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE: ${{ inputs.force_build }}
         run: |
-          VER="${{ steps.pypi.outputs.version }}"
-          TAG="v${{ env.PACKAGE_NAME }}-$VER"
-
-          if [ "$FORCE" == "true" ]; then
-            echo "Force build enabled."
-            echo "should_build=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "Release $TAG already exists. Skipping build."
-            echo "should_build=false" >> $GITHUB_OUTPUT
-          else
-            echo "Release $TAG not found. Starting build."
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          fi
+          VER="${{ steps.pypi.outputs.version }}"; TAG="v${{ env.PACKAGE_NAME }}-$VER"
+          if [ "$FORCE" == "true" ]; then echo "should_build=true" >> $GITHUB_OUTPUT; exit 0; fi
+          if gh release view "$TAG" > /dev/null 2>&1; then echo "should_build=false" >> $GITHUB_OUTPUT
+          else echo "should_build=true" >> $GITHUB_OUTPUT; fi
 
   build:
-    name: Build ${{ matrix.arch }} (Py${{ matrix.python-version }})
     needs: check-version
     if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-        arch: ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+        python-version: ['3.14']
+        arch: ['arm64-v8a']
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
       - name: Install Build Dependencies
-        run: |
-          pip install wheel setuptools build
-
+        run: pip install wheel setuptools build
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-
       - name: Install NDK r25b
         run: |
           yes | sdkmanager "ndk;${{ env.NDK_VERSION }}" > /dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
-
       - name: Build Wheel
         id: build_step
         run: |
           set -e
-
-          PY_VER="${{ matrix.python-version }}"
-          PKG_VER="${{ needs.check-version.outputs.version }}"
-          ARCH="${{ matrix.arch }}"
-          ANDROID_API="${{ env.ANDROID_API }}"
-
+          PY_VER="${{ matrix.python-version }}"; PKG_VER="${{ needs.check-version.outputs.version }}"
+          ARCH="${{ matrix.arch }}"; API="${{ env.ANDROID_API }}"
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          export PATH="$NDK_BIN:$PATH"
-
-          # Architecture config
-          if [ "$ARCH" == "arm64-v8a" ]; then
-            CC_TARGET="aarch64-linux-android${ANDROID_API}"
-            PLAT_TAG="linux_aarch64"
-            HOST_PLAT="linux-aarch64"
-          elif [ "$ARCH" == "armeabi-v7a" ]; then
-            CC_TARGET="armv7a-linux-androideabi${ANDROID_API}"
-            PLAT_TAG="linux_armv7l"
-            HOST_PLAT="linux-armv7l"
-          elif [ "$ARCH" == "x86" ]; then
-            CC_TARGET="i686-linux-android${ANDROID_API}"
-            PLAT_TAG="linux_i686"
-            HOST_PLAT="linux-i686"
-          elif [ "$ARCH" == "x86_64" ]; then
-            CC_TARGET="x86_64-linux-android${ANDROID_API}"
-            PLAT_TAG="linux_x86_64"
-            HOST_PLAT="linux-x86_64"
-          fi
-
-          # Mock libpython for cross-compilation
-          MOCK_DIR="$(pwd)/mock_libs"
-          mkdir -p "$MOCK_DIR"
-
-          "$NDK_BIN/clang" --target=$CC_TARGET -shared \
-            -Wl,-soname,libpython$PY_VER.so \
-            -o "$MOCK_DIR/libpython$PY_VER.so" -xc /dev/null
-
-          # Cross-compilation environment
-          export CC="$NDK_BIN/${CC_TARGET}-clang"
-          export CXX="$NDK_BIN/${CC_TARGET}-clang++"
+          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"; export PATH="$NDK_BIN:$PATH"
+          CC_TARGET="aarch64-linux-android${API}"; PLAT_TAG="linux_aarch64"; HOST_PLAT="linux-aarch64"
+          MOCK_DIR="$(pwd)/mock_libs"; mkdir -p "$MOCK_DIR"
+          "$NDK_BIN/clang" --target=$CC_TARGET -shared -Wl,-soname,libpython$PY_VER.so -o "$MOCK_DIR/libpython$PY_VER.so" -xc /dev/null
+          export CC="$NDK_BIN/${CC_TARGET}-clang"; export CXX="$NDK_BIN/${CC_TARGET}-clang++"
           export AR="$NDK_BIN/llvm-ar"
           export CFLAGS="--target=$CC_TARGET --sysroot=$NDK_SYSROOT -O2 -fPIC"
           export CXXFLAGS="--target=$CC_TARGET --sysroot=$NDK_SYSROOT -O2 -fPIC"
           export LDFLAGS="--target=$CC_TARGET --sysroot=$NDK_SYSROOT -L$MOCK_DIR -Wl,-rpath=/data/data/com.termux/files/usr/lib -Wl,--no-as-needed -lpython$PY_VER"
           export _PYTHON_HOST_PLATFORM="$HOST_PLAT"
-
-          # Download source
           mkdir -p build_src && cd build_src
-          echo "Downloading source for ${{ env.PACKAGE_NAME }} $PKG_VER..."
           pip download "${{ env.PACKAGE_NAME }}==$PKG_VER" --no-binary :all: --no-deps
-          tar -xzf selectolax-*.tar.gz
-          cd selectolax-*/
-
-          # Build wheel with platform tag override
-          echo "Starting setuptools build..."
+          tar -xzf selectolax-*.tar.gz && rm selectolax-*.tar.gz
+          cd selectolax-*
           python setup.py bdist_wheel --plat-name $PLAT_TAG
-
-          cd dist
-          WHEEL_FILE=$(ls *.whl | head -1)
+          cd dist; WHEEL_FILE=$(ls *.whl | head -1)
           echo "WHEEL_PATH=$(pwd)/$WHEEL_FILE" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.python-version }}-${{ matrix.arch }}
           path: ${{ steps.build_step.outputs.WHEEL_PATH }}
           retention-days: 1
-
   release:
-    name: Create GitHub Release
     needs: [check-version, build]
     if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: wheels
           merge-multiple: true
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.PACKAGE_NAME }}-${{ needs.check-version.outputs.version }}
           name: ${{ env.PACKAGE_NAME }} v${{ needs.check-version.outputs.version }}
           body: |
             ### Automated Android Build
-
             **Package:** `${{ env.PACKAGE_NAME }}`
-            **Version:** `${{ needs.check-version.outputs.version }}`
-
-            **Platform Support:**
             - **OS:** Android (Termux)
-            - **Archs:** `aarch64`, `armv7`, `x86`, `x86_64`
-            - **Python:** 3.9 - 3.14
-
-            **Installation:**
-            ```bash
-            pip install selectolax-*.whl
-            ```
+            - **Arch:** aarch64
+            - **Python:** 3.14
           files: wheels/*.whl
           make_latest: false
