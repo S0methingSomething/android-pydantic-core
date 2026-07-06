@@ -1,0 +1,124 @@
+name: pyyaml Android Wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_build:
+        type: boolean
+        default: false
+
+env:
+  PACKAGE_NAME: pyyaml
+  NDK_VERSION: '25.2.9519653'
+  ANDROID_API: 24
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pypi.outputs.version }}
+      should_build: ${{ steps.check_release.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pypi
+        run: |
+          VER=$(curl -s https://pypi.org/pypi/${{ env.PACKAGE_NAME }}/json | python3 -c "import sys, json; print(json.load(sys.stdin)['info']['version'])")
+          echo "version=$VER" >> $GITHUB_OUTPUT
+      - id: check_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force_build }}
+        run: |
+          VER="${{ steps.pypi.outputs.version }}"; TAG="v${{ env.PACKAGE_NAME }}-$VER"
+          if [ "$FORCE" == "true" ]; then echo "should_build=true" >> $GITHUB_OUTPUT; exit 0; fi
+          if gh release view "$TAG" > /dev/null 2>&1; then echo "should_build=false" >> $GITHUB_OUTPUT
+          else echo "should_build=true" >> $GITHUB_OUTPUT; fi
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.14']
+        arch: ['arm64-v8a']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Build Dependencies
+        run: pip install wheel setuptools build cython
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install NDK
+        run: |
+          yes | sdkmanager "ndk;${{ env.NDK_VERSION }}" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+      - name: Build libyaml + pyyaml Wheel
+        id: build_step
+        run: |
+          set -e
+          PY_VER="${{ matrix.python-version }}"; PKG_VER="${{ needs.check-version.outputs.version }}"
+          ARCH="${{ matrix.arch }}"; API="${{ env.ANDROID_API }}"
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"; export PATH="$NDK_BIN:$PATH"
+          HOST="aarch64-linux-android"; CT="aarch64-linux-android${API}"; PT="linux_aarch64"; HP="linux-aarch64"
+          export CC="$NDK_BIN/${CT}-clang"; export CXX="$NDK_BIN/${CT}-clang++"
+          export CFLAGS="--target=$CT --sysroot=$NDK_SYSROOT -O2 -fPIC"
+          export LDFLAGS="--target=$CT --sysroot=$NDK_SYSROOT"
+          export _PYTHON_HOST_PLATFORM="$HP"
+          # Cross-compile libyaml
+          echo "Building libyaml for $HOST..."
+          git clone --depth=1 https://github.com/yaml/libyaml.git
+          cd libyaml
+          ./bootstrap
+          ./configure --host=$HOST --prefix="$(pwd)/install" --disable-shared --enable-static CC="$CC" CXX="$CXX"
+          make -j$(nproc) install
+          LYB_DIR="$(pwd)/install"
+          cd ..
+          # Mock libpython
+          MOCK_DIR="$(pwd)/mock_libs"; mkdir -p "$MOCK_DIR"
+          "$NDK_BIN/clang" --target=$CT -shared -Wl,-soname,libpython$PY_VER.so -o "$MOCK_DIR/libpython$PY_VER.so" -xc /dev/null
+          # Download & build pyyaml
+          pip download "PyYAML==$PKG_VER" --no-binary :all: --no-deps
+          tar -xzf PyYAML-*.tar.gz; cd PyYAML-*
+          export CFLAGS="$CFLAGS -I$LYB_DIR/include"
+          export LDFLAGS="$LDFLAGS -L$LYB_DIR/lib -L$MOCK_DIR -Wl,-rpath=/data/data/com.termux/files/usr/lib"
+          python setup.py bdist_wheel --plat-name $PT
+          cd dist; WHEEL_FILE=$(ls *.whl | head -1)
+          echo "WHEEL_PATH=$(pwd)/$WHEEL_FILE" >> $GITHUB_OUTPUT
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.python-version }}-${{ matrix.arch }}
+          path: ${{ steps.build_step.outputs.WHEEL_PATH }}
+          retention-days: 1
+  release:
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: wheels
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.PACKAGE_NAME }}-${{ needs.check-version.outputs.version }}
+          name: ${{ env.PACKAGE_NAME }} v${{ needs.check-version.outputs.version }}
+          body: |
+            ### Automated Android Build
+            **Package:** `${{ env.PACKAGE_NAME }}`
+            - **OS:** Android (Termux)
+            - **Arch:** aarch64
+            - **Python:** 3.14
+          files: wheels/*.whl
+          make_latest: false
