@@ -1,0 +1,77 @@
+name: Build Termux Wheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Package short name (without python- prefix, lowercase)'
+        required: true
+        default: 'pyyaml'
+        type: string
+  schedule:
+    - cron: '0 4 * * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: ghcr.io/termux/package-builder:latest
+    steps:
+      - name: Checkout our repo (with our custom build.sh files)
+        uses: actions/checkout@v4
+
+      - name: Clone termux/termux-packages
+        uses: actions/checkout@v4
+        with:
+          repository: termux/termux-packages
+          path: termux-packages
+          fetch-depth: 1
+
+      - name: Copy our packages dir into termux-packages clone
+        run: |
+          cp -r packages/python-${{ inputs.package }} termux-packages/packages/
+
+      - name: Build package (this can take 5-15 min)
+        run: |
+          cd termux-packages
+          ./build-package.sh -I -C -a aarch64 python-${{ inputs.package }}
+
+      - name: Extract wheel + compute version
+        id: extract
+        run: |
+          mkdir -p wheels
+          # Look in stashes + fallback to termux-build cache
+          search_dirs=(
+            "$HOME/wheel-stash"
+            "$HOME/.termux-build/python-${{ inputs.package }}/src"
+            "$HOME/.termux-build/python-${{ inputs.package }}"
+          )
+          for d in "${search_dirs[@]}"; do
+            if [ -d "$d" ]; then
+              find "$d" -name '*.whl' -exec cp {} wheels/ \; 2>/dev/null
+            fi
+          done
+          if [ -z "$(ls -A wheels 2>/dev/null)" ]; then
+            find "$HOME/.termux-build" -name '*.whl' -exec cp {} wheels/ \; 2>/dev/null
+          fi
+          ls -la wheels/
+          WHL="$(ls wheels/*.whl 2>/dev/null | head -n1)"
+          if [ -z "$WHL" ]; then echo "::error::No wheel found"; exit 1; fi
+          VERSION=$(basename "$WHL" | sed -nE 's/^[^-]+-(.+)-[a-z0-9._]+\.whl$/\1/p' | head -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "WHL basename: $(basename "$WHL")"
+          echo "VERSION: $VERSION"
+
+      - name: Upload wheel(s) to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.package }}-${{ steps.extract.outputs.version }}
+          name: ${{ inputs.package }} v${{ steps.extract.outputs.version }}
+          body: |
+            Termux cross-compiled wheel built inside ghcr.io/termux/package-builder.
+
+            Package: ${{ inputs.package }}
+            Platform: android_24_aarch64 (Termux)
+          files: wheels/*.whl
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
