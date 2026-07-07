@@ -14,7 +14,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: ghcr.io/termux/package-builder:latest
+    container:
+      image: ghcr.io/termux/package-builder:latest
+      options: --privileged --device /dev/fuse -v /dev/fuse:/dev/fuse
     env:
       HOME: /home/builder
     steps:
