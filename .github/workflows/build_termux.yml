@@ -14,7 +14,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: ghcr.io/termux/package-builder:latest
+    container:
+      image: ghcr.io/termux/package-builder:latest
+      env:
+        HOME: /home/builder
     steps:
       - name: Checkout our repo (with our custom build.sh files)
         uses: actions/checkout@v4
