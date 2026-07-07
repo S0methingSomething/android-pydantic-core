@@ -14,10 +14,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/termux/package-builder:latest
-      env:
-        HOME: /home/builder
+    container: ghcr.io/termux/package-builder:latest
+    env:
+      HOME: /home/builder
     steps:
       - name: Checkout our repo (with our custom build.sh files)
         uses: actions/checkout@v4
@@ -34,6 +33,8 @@ jobs:
           cp -r packages/python-${{ inputs.package }} termux-packages/packages/
 
       - name: Build package (this can take 5-15 min)
+        env:
+          HOME: /home/builder
         run: |
           cd termux-packages
           ./build-package.sh -I -C -a aarch64 python-${{ inputs.package }}
